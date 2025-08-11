@@ -1,0 +1,11 @@
+name: staging
+on:
+  workflow_dispatch:
+environment:
+  name: staging
+  url: https://staging.spectra.ai
+
+env:
+  AWS_REGION: us-west-2
+  ENVIRONMENT: staging
+  KUBERNETES_NAMESPACE: spectra-staging

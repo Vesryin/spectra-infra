@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: spectra-api-monitor
+  namespace: monitoring
+  labels:
+    team: spectra
+spec:
+  selector:
+    matchLabels:
+      app: spectra-api
+  namespaceSelector:
+    matchNames:
+      - spectra
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics

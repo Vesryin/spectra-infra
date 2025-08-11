@@ -1,0 +1,55 @@
+---
+name: Staging Environment
+description: Configuration for staging environment
+enabled: true
+
+# Branch deployment rules
+deployment_branch_policy:
+  protected_branches: true
+  custom_branch_policies: false
+
+# Protection rules
+protection_rules:
+  required_reviewers: []
+  wait_timer: 0
+  prevent_self_review: true
+
+# Environment variables
+variables:
+  ENVIRONMENT: staging
+  LOG_LEVEL: info
+  NODE_ENV: staging
+  DATABASE_URL: postgresql://${DB_HOST}:5432/spectra_staging
+
+# Required secrets
+secrets:
+  - RAILWAY_TOKEN
+  - DB_HOST
+  - DB_USER
+  - DB_PASSWORD
+
+# Infrastructure settings
+infrastructure:
+  aws_region: us-west-2
+  kubernetes:
+    namespace: spectra-staging
+    replicas: 2
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 400m
+        memory: 1Gi
+
+# Monitoring settings
+monitoring:
+  alerts: true
+  metrics_retention: 30d
+  log_level: info
+
+# Feature flags
+features:
+  enable_debugging: false
+  enable_dev_tools: false
+  mock_external_services: false

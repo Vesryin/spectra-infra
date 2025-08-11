@@ -1,0 +1,29 @@
+name: Environment Protection Rules
+
+# Development Environment
+development:
+  deployment_branch_policy:
+    protected_branches: false
+    custom_branch_policies: true
+  reviewers: []
+  wait_timer: null
+
+# Staging Environment
+staging:
+  deployment_branch_policy:
+    protected_branches: true
+    custom_branch_policies: false
+  reviewers: []
+  wait_timer: null
+
+# Production Environment
+production:
+  deployment_branch_policy:
+    protected_branches: true
+    custom_branch_policies: false
+  reviewers:
+    - required: 1
+    - teams:
+        - devops
+        - senior-engineers
+  wait_timer: 15

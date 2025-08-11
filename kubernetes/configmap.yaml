@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spectra-config
+  namespace: spectra
+data:
+  LOG_LEVEL: "info"
+  ENABLE_METRICS: "true"
+  API_VERSION: "v1"
+  CORS_ORIGINS: "https://app.spectra-ai.example.com"

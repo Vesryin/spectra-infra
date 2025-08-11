@@ -1,0 +1,16 @@
+name: production
+on:
+  workflow_dispatch:
+environment:
+  name: production
+  url: https://spectra.ai
+
+env:
+  AWS_REGION: us-west-2
+  ENVIRONMENT: production
+  KUBERNETES_NAMESPACE: spectra-production
+
+# Production environment requires approval
+concurrency: 
+  group: production
+  cancel-in-progress: false

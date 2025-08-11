@@ -1,0 +1,58 @@
+# CI Configuration for Spectra Services
+
+# Linting Configuration
+linting:
+  eslint:
+    config_file: .eslintrc.json
+    ignore_patterns:
+      - node_modules/
+      - dist/
+  shellcheck:
+    enabled: true
+    exclude:
+      - SC1090
+      - SC2034
+
+# Testing Configuration
+testing:
+  jest:
+    coverage_threshold: 80
+    timeout: 30000
+  e2e:
+    browser: chrome
+    headless: true
+
+# Security Scanning Configuration
+security:
+  snyk:
+    enabled: true
+    severity_threshold: medium
+    scan_tests: true
+  trivy:
+    enabled: true
+    severity: HIGH,CRITICAL
+    ignore_unfixed: true
+  secrets:
+    enabled: true
+    tools:
+      - gitleaks
+      - detect-secrets
+
+# Docker Configuration
+docker:
+  registry: docker.io
+  username: ${DOCKER_USERNAME}
+  organization: spectra
+  scan_on_build: true
+  no_cache: true
+
+# Notification Configuration
+notifications:
+  slack:
+    channel: "#deployments"
+    on_success: change
+    on_failure: always
+  email:
+    recipients:
+      - devops@spectra.ai
+    on_failure: always

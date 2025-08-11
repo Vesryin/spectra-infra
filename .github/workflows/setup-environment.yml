@@ -1,0 +1,123 @@
+# Setup Multi-Repository Environment
+
+name: Setup Multi-Repo Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to set up'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+        default: 'development'
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+  TF_WORKSPACE: ${{ github.event.inputs.environment }}
+  KUBERNETES_NAMESPACE: spectra-${{ github.event.inputs.environment }}
+
+jobs:
+  setup-infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+          
+      - name: Terraform Init
+        run: |
+          cd terraform
+          terraform init
+          
+      - name: Terraform Plan
+        run: |
+          cd terraform
+          terraform plan -var="environment=${{ github.event.inputs.environment }}" -out=tfplan
+          
+      - name: Terraform Apply
+        run: |
+          cd terraform
+          terraform apply -auto-approve tfplan
+          
+  setup-kubernetes:
+    needs: setup-infrastructure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+          
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name spectra-${{ github.event.inputs.environment }} --region us-west-2
+        
+      - name: Create namespaces
+        run: |
+          kubectl create namespace spectra-${{ github.event.inputs.environment }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace logging --dry-run=client -o yaml | kubectl apply -f -
+          
+      - name: Apply monitoring stack
+        run: |
+          kubectl apply -f monitoring/ -n monitoring
+          
+      - name: Apply logging stack
+        run: |
+          kubectl apply -f logging/ -n logging
+          
+      - name: Setup database
+        run: |
+          cd migrations
+          docker build -t spectra-migrations .
+          docker run --rm \
+            -e FLYWAY_URL=jdbc:postgresql://${{ secrets.DB_HOST }}:5432/spectra \
+            -e FLYWAY_USER=${{ secrets.DB_USER }} \
+            -e FLYWAY_PASSWORD=${{ secrets.DB_PASSWORD }} \
+            spectra-migrations migrate
+            
+  trigger-deployments:
+    needs: setup-kubernetes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Core Build
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: Vesryin/spectra-core
+          event-type: environment-ready
+          client-payload: '{"environment": "${{ github.event.inputs.environment }}"}'
+          
+      - name: Trigger API Build
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: Vesryin/spectra-api
+          event-type: environment-ready
+          client-payload: '{"environment": "${{ github.event.inputs.environment }}"}'
+          
+      - name: Trigger Web Build
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: Vesryin/spectra-web
+          event-type: environment-ready
+          client-payload: '{"environment": "${{ github.event.inputs.environment }}"}'

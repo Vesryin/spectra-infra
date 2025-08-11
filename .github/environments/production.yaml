@@ -1,0 +1,89 @@
+---
+name: Production Environment
+description: Configuration for production environment
+enabled: true
+
+# Branch deployment rules
+deployment_branch_policy:
+  protected_branches: true
+  custom_branch_policies: false
+
+# Protection rules
+protection_rules:
+  required_reviewers:
+    - devops-team
+    - senior-engineers
+  wait_timer: 900
+  prevent_self_review: true
+
+# Environment variables
+variables:
+  ENVIRONMENT: production
+  LOG_LEVEL: warn
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${DB_HOST}:5432/spectra_prod
+
+# Required secrets
+secrets:
+  - RAILWAY_TOKEN
+  - DB_HOST
+  - DB_USER
+  - DB_PASSWORD
+
+# Infrastructure settings
+infrastructure:
+  aws_region: us-west-2
+  kubernetes:
+    namespace: spectra-production
+    replicas: 3
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  scaling:
+    min_replicas: 3
+    max_replicas: 10
+    target_cpu_utilization: 70
+    target_memory_utilization: 80
+
+# Monitoring settings
+monitoring:
+  alerts: true
+  metrics_retention: 90d
+  log_level: warn
+  pagerduty_integration: true
+  error_tracking: true
+
+# Security settings
+security:
+  network_policy:
+    enabled: true
+    ingress_whitelist:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+  pod_security_policy:
+    enabled: true
+  image_scanning:
+    enabled: true
+    block_on_high_severity: true
+
+# Backup settings
+backup:
+  enabled: true
+  schedule: "0 */6 * * *"
+  retention_period: 30d
+
+# Feature flags
+features:
+  enable_debugging: false
+  enable_dev_tools: false
+  mock_external_services: false
+
+# Compliance settings
+compliance:
+  audit_logging: true
+  data_encryption: true
+  access_logging: true

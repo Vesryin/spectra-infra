@@ -1,0 +1,120 @@
+# Repository Synchronization Workflow
+
+name: Repo Synchronization
+
+on:
+  repository_dispatch:
+    types: [api-image-updated]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to update'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+        default: 'staging'
+      image:
+        description: 'Docker image to update'
+        required: true
+        type: string
+        default: 'spectra/api'
+      tag:
+        description: 'Docker image tag'
+        required: true
+        type: string
+        default: 'latest'
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+  REGISTRY: ${{ vars.DOCKER_REGISTRY || 'docker.io' }}
+
+jobs:
+  update-kubernetes-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set environment variables
+        id: set-env
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            IMAGE="${{ github.event.client_payload.image }}"
+            TAG="${{ github.event.client_payload.tag }}"
+            ENV="staging"
+          else
+            IMAGE="${{ github.event.inputs.image }}"
+            TAG="${{ github.event.inputs.tag }}"
+            ENV="${{ github.event.inputs.environment }}"
+          fi
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "env=$ENV" >> $GITHUB_OUTPUT
+          
+      - name: Update Kubernetes manifests
+        run: |
+          cd kubernetes
+          sed -i 's|image: ${{ env.IMAGE }}:.*|image: ${{ env.IMAGE }}:${{ env.TAG }}|' deployment.yaml
+          
+      - name: Commit changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add kubernetes/deployment.yaml
+          git commit -m "Update ${{ env.IMAGE }} to version ${{ env.TAG }}"
+          
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+          
+  deploy-to-environment:
+    needs: update-kubernetes-manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+          
+      - name: Set environment variables
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "ENV=staging" >> $GITHUB_ENV
+          else
+            echo "ENV=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          fi
+          
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+          
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name spectra-${{ env.ENV }} --region us-west-2
+        
+      - name: Deploy to environment
+        run: |
+          kubectl apply -f kubernetes/configmap.yaml -n spectra-${{ env.ENV }}
+          kubectl apply -f kubernetes/deployment.yaml -n spectra-${{ env.ENV }}
+          kubectl apply -f kubernetes/service.yaml -n spectra-${{ env.ENV }}
+          kubectl apply -f kubernetes/ingress.yaml -n spectra-${{ env.ENV }}
+          
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/spectra-api -n spectra-${{ env.ENV }}
+          
+      - name: Notify other repositories
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          repository: Vesryin/spectra-web
+          event-type: api-updated
+          client-payload: '{"environment": "${{ env.ENV }}", "version": "${{ env.TAG }}"}'

@@ -1,0 +1,55 @@
+---
+name: Development Environment
+description: Configuration for development environment
+enabled: true
+
+# Branch deployment rules
+deployment_branch_policy:
+  protected_branches: false
+  custom_branch_policies: true
+
+# Protection rules
+protection_rules:
+  required_reviewers: []
+  wait_timer: 0
+  prevent_self_review: false
+
+# Environment variables
+variables:
+  ENVIRONMENT: development
+  LOG_LEVEL: debug
+  NODE_ENV: development
+  DATABASE_URL: postgresql://localhost:5432/spectra_dev
+
+# Required secrets
+secrets:
+  - RAILWAY_TOKEN
+  - DB_HOST
+  - DB_USER
+  - DB_PASSWORD
+
+# Infrastructure settings
+infrastructure:
+  aws_region: us-west-2
+  kubernetes:
+    namespace: spectra-development
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+
+# Monitoring settings
+monitoring:
+  alerts: false
+  metrics_retention: 7d
+  log_level: debug
+
+# Feature flags
+features:
+  enable_debugging: true
+  enable_dev_tools: true
+  mock_external_services: true
