@@ -1,5 +1,3 @@
-# Repository Synchronization Workflow
-
 name: Repo Synchronization
 
 on:
@@ -27,43 +25,50 @@ on:
         type: string
         default: 'latest'
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
-  REGISTRY: ${{ vars.DOCKER_REGISTRY || 'docker.io' }}
+permissions:
+  contents: write
+  id-token: write
 
 jobs:
   update-kubernetes-manifests:
     runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.set-env.outputs.env }}
+      image: ${{ steps.set-env.outputs.image }}
+      tag: ${{ steps.set-env.outputs.tag }}
     steps:
       - uses: actions/checkout@v3
       
       - name: Set environment variables
         id: set-env
         run: |
-          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
-            IMAGE="${{ github.event.client_payload.image }}"
-            TAG="${{ github.event.client_payload.tag }}"
-            ENV="staging"
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "image=${{ github.event.client_payload.image }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.client_payload.tag }}" >> $GITHUB_OUTPUT
+            echo "env=staging" >> $GITHUB_OUTPUT
           else
-            IMAGE="${{ github.event.inputs.image }}"
-            TAG="${{ github.event.inputs.tag }}"
-            ENV="${{ github.event.inputs.environment }}"
+            echo "image=${{ github.event.inputs.image }}" >> $GITHUB_OUTPUT
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+            echo "env=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
           fi
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "env=$ENV" >> $GITHUB_OUTPUT
           
       - name: Update Kubernetes manifests
+        env:
+          IMAGE: ${{ steps.set-env.outputs.image }}
+          TAG: ${{ steps.set-env.outputs.tag }}
         run: |
           cd kubernetes
-          sed -i 's|image: ${{ env.IMAGE }}:.*|image: ${{ env.IMAGE }}:${{ env.TAG }}|' deployment.yaml
+          sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|" deployment.yaml
           
       - name: Commit changes
+        env:
+          IMAGE: ${{ steps.set-env.outputs.image }}
+          TAG: ${{ steps.set-env.outputs.tag }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add kubernetes/deployment.yaml
-          git commit -m "Update ${{ env.IMAGE }} to version ${{ env.TAG }}"
+          git commit -m "Update ${IMAGE} to version ${TAG}"
           
       - name: Push changes
         uses: ad-m/github-push-action@master
@@ -74,18 +79,11 @@ jobs:
   deploy-to-environment:
     needs: update-kubernetes-manifests
     runs-on: ubuntu-latest
+    environment: ${{ needs.update-kubernetes-manifests.outputs.env }}
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.ref }}
-          
-      - name: Set environment variables
-        run: |
-          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
-            echo "ENV=staging" >> $GITHUB_ENV
-          else
-            echo "ENV=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
-          fi
           
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
@@ -93,28 +91,35 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions
           aws-region: us-west-2
           
       - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name spectra-${{ env.ENV }} --region us-west-2
+        run: aws eks update-kubeconfig --name spectra-${{ needs.update-kubernetes-manifests.outputs.env }} --region us-west-2
         
       - name: Deploy to environment
+        env:
+          ENV: ${{ needs.update-kubernetes-manifests.outputs.env }}
         run: |
-          kubectl apply -f kubernetes/configmap.yaml -n spectra-${{ env.ENV }}
-          kubectl apply -f kubernetes/deployment.yaml -n spectra-${{ env.ENV }}
-          kubectl apply -f kubernetes/service.yaml -n spectra-${{ env.ENV }}
-          kubectl apply -f kubernetes/ingress.yaml -n spectra-${{ env.ENV }}
+          kubectl apply -f kubernetes/configmap.yaml -n spectra-${ENV}
+          kubectl apply -f kubernetes/deployment.yaml -n spectra-${ENV}
+          kubectl apply -f kubernetes/service.yaml -n spectra-${ENV}
+          kubectl apply -f kubernetes/ingress.yaml -n spectra-${ENV}
           
       - name: Verify deployment
+        env:
+          ENV: ${{ needs.update-kubernetes-manifests.outputs.env }}
         run: |
-          kubectl rollout status deployment/spectra-api -n spectra-${{ env.ENV }}
+          kubectl rollout status deployment/spectra-api -n spectra-${ENV}
           
       - name: Notify other repositories
         uses: peter-evans/repository-dispatch@v2
         with:
-          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           repository: Vesryin/spectra-web
           event-type: api-updated
-          client-payload: '{"environment": "${{ env.ENV }}", "version": "${{ env.TAG }}"}'
+          client-payload: |
+            {
+              "environment": "${{ needs.update-kubernetes-manifests.outputs.env }}",
+              "version": "${{ needs.update-kubernetes-manifests.outputs.tag }}"
+            }
