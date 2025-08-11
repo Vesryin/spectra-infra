@@ -1,4 +1,8 @@
-name: Shared Workflows
+on:
+
+
+# Shared reusable workflow for Spectra infra
+# Usage: Call this workflow with required secrets and environment input.
 
 on:
   workflow_call:
@@ -8,15 +12,9 @@ on:
         type: string
         description: 'Environment (development/staging/production)'
     secrets:
-      AWS_ACCESS_KEY_ID:
-        required: true
-      AWS_SECRET_ACCESS_KEY:
-        required: true
       DOCKERHUB_USERNAME:
         required: true
       DOCKERHUB_TOKEN:
-        required: true
-      GITHUB_TOKEN:
         required: true
 
 permissions:
@@ -28,9 +26,12 @@ jobs:
     name: Configure AWS Credentials
     runs-on: ubuntu-latest
     steps:
+
+      # Assumes OIDC role is configured in AWS for this repo.
+      # Assumes OIDC role is configured in AWS for this repo.
       - uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions
+          role-to-assume: arn:aws:iam::<YOUR_ACCOUNT_ID>:role/github-actions  # <-- Replace with your actual AWS role ARN
           aws-region: us-west-2
 
   docker-auth:
@@ -49,7 +50,7 @@ jobs:
     steps:
       - uses: peter-evans/repository-dispatch@v2
         with:
-          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          token: ${{ github.token }}
           repository: ${{ github.repository }}
           event-type: deployment-complete
           client-payload: |
